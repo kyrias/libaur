@@ -3,43 +3,10 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <archive.h>
-#include <archive_entry.h>
+#include <git2.h>
 
 #include "aur.h"
 #include "macro.h"
-
-static int tarball_extract_from_mem(const void *data, size_t len) {
-  struct archive *a;
-  struct archive_entry *hdr;
-  const int extract_mask = ARCHIVE_EXTRACT_PERM | ARCHIVE_EXTRACT_TIME;
-  int r = ARCHIVE_OK;
-
-  a = archive_read_new();
-
-  archive_read_support_format_all(a);
-  archive_read_support_filter_all(a);
-
-  /* Ugly cast, but harmless. libarchive doesn't actually modify the memory for
-   * read operations -- it's just an API wart. */
-  if (archive_read_open_memory(a, (void*)data, len) != ARCHIVE_OK) {
-    r = -archive_errno(a);
-    goto done;
-  }
-
-  while (archive_read_next_header(a, &hdr) == ARCHIVE_OK) {
-    if (archive_read_extract(a, hdr, extract_mask) != ARCHIVE_OK) {
-      r = -archive_errno(a);
-      goto done;
-    }
-  }
-
-done:
-  archive_read_close(a);
-  archive_read_free(a);
-
-  return r;
-}
 
 static void dump_string(const char *k, const char *v) {
   if (v == NULL)
@@ -130,20 +97,6 @@ static int done_cb_json(aur_t *aur, aur_request_t *req, const void *response, in
   return 0;
 }
 
-static int done_cb_blob(aur_t *aur, aur_request_t *req, const void *response, int responselen) {
-  int r;
-
-  (void)aur;
-
-  r = tarball_extract_from_mem(response, responselen);
-  if (r < 0)
-    fprintf(stderr, "error: failed to extract tarball to disk: %s\n", strerror(-r));
-
-  aur_request_unref(req);
-
-  return r;
-}
-
 static int ready_for_download(aur_t *aur, aur_request_t *req, const void *response, int responselen) {
   struct package_t *pkgs;
   int r, c;
@@ -164,24 +117,39 @@ static int ready_for_download(aur_t *aur, aur_request_t *req, const void *respon
   }
 
   for (int i = 0; i < c; ++i) {
-    aur_request_t *dlreq;
+    int error;
 
-    r = aur_request_new(&dlreq, REQUEST_DOWNLOAD, done_cb_blob);
-    if (r < 0) {
-      fprintf(stderr, "failed to make download request\n");
-      return 1;
+    char * url;
+    asprintf(&url, "https://" AUR_DOMAIN "/%s.git", pkgs[i].pkgbase);
+
+    git_repository * repo = NULL;
+    error = git_repository_open(&repo, pkgs[i].pkgbase);
+    if (error == GIT_OK) {
+      if (strcmp(pkgs[i].name, pkgs[i].pkgbase) == 0) {
+        printf("==> Package '%s' already downloaded\n", pkgs[i].name);
+      } else {
+        printf("==> Package '%s' already downloaded as '%s'\n", pkgs[i].name, pkgs[i].pkgbase);
+      }
+      git_repository_free(repo);
+      continue;
     }
 
-    r = aur_request_append_arg(dlreq, pkgs[i].aur_urlpath);
-    if (r < 0) {
-      fprintf(stderr, "failed to make append urlpath\n");
-      return 1;
+    error = git_clone(&repo, url, pkgs[i].pkgbase, NULL);
+    if (error != 0) {
+      const git_error *err = giterr_last();
+      if (err) {
+        printf("ERROR %d: %s\n", err->klass, err->message);
+      } else {
+        printf("ERROR %d: no detailed info\n", error);
+      }
+      git_repository_free(repo);
+      continue;
     }
 
-    r = aur_queue_request(aur, dlreq);
-    if (r < 0) {
-      fprintf(stderr, "failed to make queue download request\n");
-      return 1;
+    if (strcmp(pkgs[i].name, pkgs[i].pkgbase) == 0) {
+      printf("==> Package '%s' cloned\n", pkgs[i].name);
+    } else {
+      printf("==> Package '%s' cloned as '%s'\n", pkgs[i].name, pkgs[i].pkgbase);
     }
   }
 
@@ -212,8 +180,6 @@ static aur_request_done_fn get_callback_for_method(int request_type) {
   case REQUEST_SEARCH:
   case REQUEST_MSEARCH:
     return done_cb_json;
-  case REQUEST_DOWNLOAD:
-    return done_cb_blob;
   default:
     return NULL;
   }
@@ -328,6 +294,7 @@ int main(int argc, char **argv) {
   _cleanup_free_ aur_request_t **reqs = NULL;
   aur_t *aur;
   int rc, r, t;
+  git_libgit2_init();
 
   if (argc < 3 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     usage(stdout, argv[0]);
@@ -370,6 +337,8 @@ int main(int argc, char **argv) {
   }
 
   aur_free(aur);
+
+  git_libgit2_shutdown();
 
   return 0;
 }

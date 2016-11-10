@@ -26,10 +26,9 @@ AM_SILENT_RULES([yes])
 LT_PREREQ(2.2)
 LT_INIT
 
-# PKG_CHECK_MODULES(ARCHIVE, [ libarchive >= 3.0.0 ])
 PKG_CHECK_MODULES(CURL,    [ libcurl >= 7.28.0 ])
 PKG_CHECK_MODULES(YAJL,    [ yajl >= 2.0.0 ])
-PKG_CHECK_MODULES(ARCHIVE, [ libarchive >= 3.1.0 ])
+PKG_CHECK_MODULES(LIBGIT2, [ libgit2 >= 0.22.0 ])
 
 # Help line for using git version in pkgfile version string
 AC_ARG_ENABLE(git-version,
@@ -78,7 +77,6 @@ CC_CHECK_FLAGS_APPEND(with_cflags, [CFLAGS], [\
 	-Wold-style-definition \
 	-Wpointer-arith \
 	-Winit-self \
-	-Wdeclaration-after-statement \
 	-Wfloat-equal \
 	-Wmissing-prototypes \
 	-Wstrict-prototypes \

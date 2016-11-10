@@ -51,8 +51,8 @@ cow_SOURCES = \
 
 cow_CFLAGS = \
 	$(AM_CFLAGS) \
-	$(ARCHIVE_CFLAGS)
+	$(LIBGIT2_CFLAGS)
 
 cow_LDADD = \
-	$(ARCHIVE_LIBS) \
+	$(LIBGIT2_LIBS) \
 	libaur.la
